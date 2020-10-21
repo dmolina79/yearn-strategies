@@ -1,4 +1,4 @@
-pragma solidity ^0.5.16;
+pragma solidity ^0.6.12;
 
 interface Vault {
     function deposit(uint256) external;
