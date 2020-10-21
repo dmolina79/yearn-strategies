@@ -1,4 +1,4 @@
-pragma solidity ^0.5.17;
+pragma solidity 0.6.12;
 
 interface OracleSecurityModule {
     function peek() external view returns (bytes32, bool);

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.5.17;
+pragma solidity 0.6.12;
 
 interface dERC20 {
     function mint(address, uint256) external;
