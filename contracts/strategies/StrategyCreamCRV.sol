@@ -60,7 +60,7 @@ contract StrategyCreamCRV is BaseStrategy {
 
     function harvestTrigger(uint256 gasCost) public override view returns (bool) {
         gasCost; // Shh
-        // NOTE: if the vault has creditAvailable we can pull in harvest
+        // NOTE: if the vault has creditAvailable we can pull funds in harvest
         if (vault.creditAvailable() > 0) {
             return true;
         }
