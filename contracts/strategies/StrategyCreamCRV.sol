@@ -19,77 +19,141 @@ import "../../interfaces/yearn/IController.sol";
  */
 
 contract StrategyCreamCRV is BaseStrategy {
+    using SafeERC20 for IERC20;
+    using Address for address;
+    using SafeMath for uint256;
+
+    // want is CRV
+
+    Creamtroller public constant creamtroller = Creamtroller(0x3d5BC3c8d13dcB8bF317092d84783c2697AE9258);
+
+    address public constant crCRV = address(0xc7Fd8Dcee4697ceef5a2fd4608a7BD6A94C77480);
+    address public constant cream = address(0x2ba592F78dB6436527729929AAf6c908497cB200);
+
+    address public constant uni = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+    address public constant weth = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // used for cream <> weth <> crv route
+
+    uint256 public performanceFee = 500;
+    uint256 public constant performanceMax = 10000;
+
+    uint256 public withdrawalFee = 50;
+    uint256 public constant withdrawalMax = 10000;
+
     constructor(address _vault) public BaseStrategy(_vault) {}
 
-    // When exiting the position, wait this many times to give everything back
-    uint256 countdownTimer = 3;
-
-    // NOTE: This is a test-only function
-    function _takeFunds(uint256 amount) public {
-        want.transfer(msg.sender, amount);
-    }
-
-    function tendTrigger(uint256 gasCost) public override view returns (bool) {
-        // In our example, we don't ever need tend, but if there are positions
-        // that need active maintainence, this is how you would signal for that
-        // NOTE: Must be mutually exclusive of `harvestTrigger`
-        //       (both can be false, but both should not be true)
-        return false;
-    }
-
-    function harvestTrigger(uint256 gasCost) public override view returns (bool) {
-        StrategyParams memory params = vault.strategies(address(this));
-
-        // Should not trigger if strategy is not activated
-        if (params.activation == 0) return false;
-
-        // If some amount is owed, pay it back
-        if (outstanding > 0 || vault.debtOutstanding() > 0) return true;
-
-        // Only trigger if it "makes sense" economically (<1% of value moved)
-        uint256 credit = vault.creditAvailable();
-        uint256 profit = 0;
-        if (want.balanceOf(address(this)) > reserve) profit = want.balanceOf(address(this)).sub(reserve);
-        // NOTE: Assume a 1:1 price here, for testing purposes
-        return (100 * gasCost < credit.add(profit));
-    }
-
+    // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
     function expectedReturn() public override view returns (uint256) {
-        return vault.expectedReturn();
-    }
-
-    function estimatedTotalAssets() public override view returns (uint256) {
-        return want.balanceOf(address(this));
-    }
-
-    function prepareReturn() internal override {
-        // During testing, send this contract some tokens to simulate "Rewards"
+        // TODO: what should this be the value to return in expectedReturn for this strat?
+        return balanceOf();
     }
 
     function adjustPosition() internal override {
-        // Whatever we have "free", consider it "invested" now
-        if (outstanding <= want.balanceOf(address(this))) {
-            reserve = want.balanceOf(address(this)).sub(outstanding);
-        } else {
-            reserve = 0;
+        uint256 _want = IERC20(want).balanceOf(address(this));
+        if (_want > 0) {
+            IERC20(want).safeApprove(crCRV, 0);
+            IERC20(want).safeApprove(crCRV, _want);
+            cToken(crCRV).mint(_want);
         }
     }
 
-    function liquidatePosition(uint256 _amount) internal override {
-        if (_amount > reserve) {
-            reserve = 0;
-        } else {
-            reserve = reserve.sub(_amount);
+    function harvestTrigger(uint256 gasCost) public override view returns (bool) {
+        gasCost; // Shh
+        if (vault.creditAvailable() > 0) {
+            return true;
         }
+
+        return false;
+    }
+
+    function estimatedTotalAssets() public override view returns (uint256) {
+        return balanceOf();
     }
 
     function exitPosition() internal override {
-        // Dump 25% each time this is called, the first 3 times
-        reserve = want.balanceOf(address(this)).mul(countdownTimer).div(4);
-        countdownTimer.sub(1); // NOTE: This should never be called after it hits 0
+        _withdrawAll();
+    }
+
+    function prepareReturn() internal override {
+        // Note: in case of CREAM liquidity mining
+        Creamtroller(creamtroller).claimComp(address(this));
+        // NOTE: in case of CREAM liquidity mining
+        uint256 _cream = IERC20(cream).balanceOf(address(this));
+        if (_cream > 0) {
+            IERC20(cream).safeApprove(uni, 0);
+            IERC20(cream).safeApprove(uni, _cream);
+
+            address[] memory path = new address[](3);
+            path[0] = cream;
+            path[1] = weth;
+            // NOTE: need to cast it since BaseStrategy wraps IERC20 interface
+            path[2] = address(want);
+
+            Uni(uni).swapExactTokensForTokens(_cream, uint256(0), path, address(this), now.add(1800));
+        }
+    }
+
+    function tendTrigger(uint256 gasCost) public override view returns (bool) {
+        // NOTE: this strategy does not need tending
+
+        gasCost; // Shh
+
+        return false;
+    }
+
+    function liquidatePosition(uint256 _amount) internal override {
+        _withdrawSome(_amount);
     }
 
     function prepareMigration(address _newStrategy) internal override {
+        exitPosition();
         want.transfer(_newStrategy, want.balanceOf(address(this)));
+    }
+
+    // ******* HELPER METHODS *********
+
+    function _withdrawC(uint256 amount) internal {
+        // 0=success else fails with error code
+        require(cToken(crCRV).redeem(amount) == 0, "cToken redeem failed!");
+    }
+
+    function _withdrawAll() internal {
+        uint256 amount = balanceC();
+        if (amount > 0) {
+            _withdrawSome(balanceCInToken().sub(1));
+        }
+    }
+
+    function _withdrawSome(uint256 _amount) internal returns (uint256) {
+        uint256 b = balanceC();
+        uint256 bT = balanceCInToken();
+        // can have unintentional rounding errors
+        uint256 amount = (b.mul(_amount)).div(bT).add(1);
+        uint256 _before = IERC20(want).balanceOf(address(this));
+        _withdrawC(amount);
+        uint256 _after = IERC20(want).balanceOf(address(this));
+        uint256 _withdrew = _after.sub(_before);
+        return _withdrew;
+    }
+
+    // ******** BALANCE METHODS ********************
+    function balanceCInToken() public view returns (uint256) {
+        // Mantisa 1e18 to decimals
+        uint256 b = balanceC();
+        if (b > 0) {
+            b = b.mul(cToken(crCRV).exchangeRateStored()).div(1e18);
+        }
+        return b;
+    }
+
+    function balanceC() public view returns (uint256) {
+        return IERC20(crCRV).balanceOf(address(this));
+    }
+
+    function balanceOf() public view returns (uint256) {
+        return balanceOfWant().add(balanceCInToken());
+    }
+
+    function balanceOfWant() public view returns (uint256) {
+        return IERC20(want).balanceOf(address(this));
     }
 }
