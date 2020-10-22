@@ -44,9 +44,11 @@ contract StrategyCreamCRV is BaseStrategy {
     // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
     function expectedReturn() public override view returns (uint256) {
         // TODO: what should this be the value to return in expectedReturn for this strat?
+        // TODO: check if we can calculate return from CREAM ?
         return balanceOf();
     }
 
+    // NOTE: deposit any outstanding want token into CREAM
     function adjustPosition() internal override {
         uint256 _want = IERC20(want).balanceOf(address(this));
         if (_want > 0) {
@@ -58,6 +60,7 @@ contract StrategyCreamCRV is BaseStrategy {
 
     function harvestTrigger(uint256 gasCost) public override view returns (bool) {
         gasCost; // Shh
+        // NOTE: if the vault has creditAvailable we can pull in harvest
         if (vault.creditAvailable() > 0) {
             return true;
         }
