@@ -23,6 +23,7 @@ def token(gov, Token):
 
 @pytest.fixture
 def vault(gov, guardian, token, rewards, Vault):
+    # Deploy the Vault without any name/symbol overrides
     vault = guardian.deploy(Vault, token, gov, rewards, "", "")
     # Make it so vault has some AUM to start
     token.approve(vault, token.balanceOf(gov) // 2, {"from": gov})
