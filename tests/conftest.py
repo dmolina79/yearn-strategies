@@ -1,5 +1,7 @@
 import pytest
 
+from brownie import StrategyCreamCRV
+
 
 @pytest.fixture
 def gov(accounts):

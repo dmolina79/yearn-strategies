@@ -43,8 +43,6 @@ contract StrategyCreamCRV is BaseStrategy {
 
     // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
     function expectedReturn() public override view returns (uint256) {
-        // TODO: what should this be the value to return in expectedReturn for this strat?
-        // TODO: check if we can calculate return from CREAM ?
         return balanceOf();
     }
 
