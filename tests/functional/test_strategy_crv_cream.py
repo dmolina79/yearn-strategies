@@ -32,8 +32,8 @@ def strategy(gov, strategist, keeper, token, vault, TestStrategy):
     strategy.setKeeper(keeper, {"from": strategist})
     vault.addStrategy(
         strategy,
-        token.balanceOf(vault),  # Go up to 100% of Vault AUM
-        token.balanceOf(vault),  # 100% of Vault AUM per block (no rate limit)
+        token.totalSupply() // 5,  # Debt limit of 20% of token supply (40% of Vault)
+        token.totalSupply() // 1000,  # Rate limt of 0.1% of token supply per block
         50,  # 0.5% performance fee for Strategist
         {"from": gov},
     )
@@ -124,20 +124,15 @@ def test_strategy(
     sample = 100
     chain.mine(sample)
     print("credit available for strat", vault.creditAvailable(strategy).to("ether"))
-    # assert vault.creditAvailable(strategy).to("ether") > 0
+    assert vault.creditAvailable(strategy) > 0
     # # Gas cost doesn't matter for this strat
-    # assert strategy.harvestTrigger(0) == True
+    assert strategy.harvestTrigger(0) == True
     strategy.harvest()
     print("balance of strategy:", strategy.estimatedTotalAssets().to("ether"))
     after = strategy.estimatedTotalAssets()
     assert strategy.balanceC() == cToken.balanceOf(strategy)
     assert after >= before
     print("vault.pricePerShare() after: ", vault.pricePerShare())
-
-    # vault.withdraw(vault.balance(whale), {"from": whale})
-    # user_after = token.balanceOf(whale)
-    # print(f"\nuser balance increase:", (user_after - user_before).to("ether"))
-    # assert user_after >= user_before
 
 
 def max_approve(token, address, from_account):

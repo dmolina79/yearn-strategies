@@ -34,6 +34,21 @@ def vault(gov, guardian, token, rewards, Vault):
 
 
 @pytest.fixture
+def strategy(gov, strategist, keeper, token, vault, TestStrategy):
+    strategy = strategist.deploy(StrategyCreamCRV, vault)
+    strategy.setKeeper(keeper, {"from": strategist})
+    print("balance of vault for strat: ", token.balanceOf(vault))
+    vault.addStrategy(
+        strategy,
+        token.totalSupply() // 5,  # Debt limit of 20% of token supply (40% of Vault)
+        token.totalSupply() // 1000,  # Rate limt of 0.1% of token supply per block
+        50,  # 0.5% performance fee for Strategist
+        {"from": gov},
+    )
+    yield strategy
+
+
+@pytest.fixture
 def strategist(accounts):
     yield accounts[3]
 
