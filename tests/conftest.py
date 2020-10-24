@@ -3,6 +3,9 @@ import pytest
 from brownie import StrategyCreamCRV
 
 
+TOKEN_CONTRACT = "0xD533a949740bb3306d119CC777fa900bA034cd52"
+
+
 @pytest.fixture
 def gov(accounts):
     yield accounts[0]
@@ -19,8 +22,8 @@ def guardian(accounts):
 
 
 @pytest.fixture
-def token(gov, Token):
-    yield gov.deploy(Token)
+def token(Contract):
+    yield Contract.from_explorer(TOKEN_CONTRACT)
 
 
 @pytest.fixture

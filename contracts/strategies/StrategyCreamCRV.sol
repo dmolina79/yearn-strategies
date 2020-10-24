@@ -32,6 +32,8 @@ contract StrategyCreamCRV is BaseStrategy {
     using SafeMath for uint256;
 
     // want is CRV
+    address public constant CRV = address(0xD533a949740bb3306d119CC777fa900bA034cd52);
+
     Creamtroller public constant creamtroller = Creamtroller(0x3d5BC3c8d13dcB8bF317092d84783c2697AE9258);
 
     address public constant crCRV = address(0xc7Fd8Dcee4697ceef5a2fd4608a7BD6A94C77480);
@@ -44,7 +46,10 @@ contract StrategyCreamCRV is BaseStrategy {
 
     uint256 public gasFactor = 10;
 
-    constructor(address _vault) public BaseStrategy(_vault) {}
+    constructor(address _vault) public BaseStrategy(_vault) {
+        //only accept CRV vault
+        require(vault.token() == CRV, "!NOT_CRV");
+    }
 
     // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
     function expectedReturn() public override view returns (uint256) {

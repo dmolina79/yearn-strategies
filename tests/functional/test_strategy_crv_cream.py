@@ -61,6 +61,8 @@ def vault(gov, guardian, token, rewards, Vault):
     vault.deposit(token.balanceOf(gov) // 2, {"from": gov})
     assert token.balanceOf(vault) == token.balanceOf(gov)
     assert vault.totalDebt() == 0  # No connected strategies yet
+    print("vault.token: ", vault.token())
+    assert vault.token() == token.address
     yield vault
 
 
