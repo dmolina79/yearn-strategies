@@ -87,7 +87,7 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     function estimatedTotalAssets() public override view returns (uint256) {
-        return IERC20(want).balanceOf(address(this)).add(balanceCInToken());
+        return IERC20(want).balanceOf(address(this)).add(_balanceCInToken());
     }
 
     function exitPosition() internal override {
@@ -144,15 +144,15 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     function _withdrawAll() internal {
-        uint256 amount = balanceC();
+        uint256 amount = _balanceC();
         if (amount > 0) {
-            _withdrawSome(balanceCInToken().sub(1));
+            _withdrawSome(_balanceCInToken().sub(1));
         }
     }
 
     function _withdrawSome(uint256 _amount) internal returns (uint256) {
-        uint256 b = balanceC();
-        uint256 bT = balanceCInToken();
+        uint256 b = _balanceC();
+        uint256 bT = _balanceCInToken();
         // can have unintentional rounding errors
         uint256 amount = (b.mul(_amount)).div(bT).add(1);
         uint256 _before = IERC20(want).balanceOf(address(this));
@@ -164,16 +164,16 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     // ******** BALANCE METHODS ********************
-    function balanceCInToken() internal view returns (uint256) {
+    function _balanceCInToken() internal view returns (uint256) {
         // Mantisa 1e18 to decimals
-        uint256 b = balanceC();
+        uint256 b = _balanceC();
         if (b > 0) {
             b = b.mul(cToken(crCRV).exchangeRateStored()).div(1e18);
         }
         return b;
     }
 
-    function balanceC() internal view returns (uint256) {
+    function _balanceC() internal view returns (uint256) {
         return IERC20(crCRV).balanceOf(address(this));
     }
 }
