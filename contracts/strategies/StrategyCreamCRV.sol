@@ -14,6 +14,14 @@ import "../../interfaces/uniswap/Uni.sol";
 
 import "../../interfaces/yearn/IController.sol";
 
+interface UniswapOracleProxy {
+    function quote(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) external view returns (uint256);
+}
+
 /*
  * Strategy For CRV using Cream Finance
  */
@@ -24,7 +32,6 @@ contract StrategyCreamCRV is BaseStrategy {
     using SafeMath for uint256;
 
     // want is CRV
-
     Creamtroller public constant creamtroller = Creamtroller(0x3d5BC3c8d13dcB8bF317092d84783c2697AE9258);
 
     address public constant crCRV = address(0xc7Fd8Dcee4697ceef5a2fd4608a7BD6A94C77480);
@@ -33,11 +40,18 @@ contract StrategyCreamCRV is BaseStrategy {
     address public constant uni = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     address public constant weth = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // used for cream <> weth <> crv route
 
+    UniswapOracleProxy constant ORACLE = UniswapOracleProxy(0x0b5A6b318c39b60e7D8462F888e7fbA89f75D02F);
+
+    uint256 public gasFactor = 10;
+
     constructor(address _vault) public BaseStrategy(_vault) {}
 
     // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
     function expectedReturn() public override view returns (uint256) {
-        return balanceOf();
+        //expected return = expected total assets (Total supplied CREAM + some want) - core postion (totalDebt)
+        StrategyParams memory params = vault.strategies(address(this));
+
+        return estimatedTotalAssets() - params.totalDebt;
     }
 
     // NOTE: deposit any outstanding want token into CREAM
@@ -51,17 +65,29 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     function harvestTrigger(uint256 gasCost) public override view returns (bool) {
-        gasCost; // Shh
         // NOTE: if the vault has creditAvailable we can pull funds in harvest
-        if (vault.creditAvailable() > 0) {
-            return true;
+        uint256 _credit = vault.creditAvailable();
+        if (_credit > 0) {
+            uint256 creditInWei = ORACLE.quote(address(want), weth, _credit);
+            // ethvalue of credit available * factor is  greater than gas Cost
+            if (creditInWei.mul(gasFactor) > gasCost) {
+                return true;
+            }
+        }
+        uint256 _debtOutstanding = vault.debtOutstanding();
+        if (_debtOutstanding > 0) {
+            uint256 debtInWei = ORACLE.quote(address(want), weth, _debtOutstanding);
+            // ethvalue of debt * factor is  greater than gas Cost
+            if (debtInWei.mul(gasFactor) > gasCost) {
+                return true;
+            }
         }
 
         return false;
     }
 
     function estimatedTotalAssets() public override view returns (uint256) {
-        return balanceOf();
+        return IERC20(want).balanceOf(address(this)).add(balanceCInToken());
     }
 
     function exitPosition() internal override {
@@ -85,6 +111,12 @@ contract StrategyCreamCRV is BaseStrategy {
 
             Uni(uni).swapExactTokensForTokens(_cream, uint256(0), path, address(this), now.add(1800));
         }
+
+        uint256 _expectedReturnFromCream = expectedReturn();
+        if (_expectedReturnFromCream > 0) {
+            // realize profits from cream
+            liquidatePosition(_expectedReturnFromCream);
+        }
     }
 
     function tendTrigger(uint256 gasCost) public override view returns (bool) {
@@ -106,9 +138,9 @@ contract StrategyCreamCRV is BaseStrategy {
 
     // ******* HELPER METHODS *********
 
-    function _withdrawC(uint256 amount) internal {
-        // 0=success else fails with error code
-        require(cToken(crCRV).redeem(amount) == 0, "cToken redeem failed!");
+    function setGasFactor(uint256 _gasFactor) external {
+        require(msg.sender == strategist || msg.sender == governance(), "!governance");
+        gasFactor = _gasFactor;
     }
 
     function _withdrawAll() internal {
@@ -124,14 +156,15 @@ contract StrategyCreamCRV is BaseStrategy {
         // can have unintentional rounding errors
         uint256 amount = (b.mul(_amount)).div(bT).add(1);
         uint256 _before = IERC20(want).balanceOf(address(this));
-        _withdrawC(amount);
+        // 0=success else fails with error code
+        require(cToken(crCRV).redeem(amount) == 0, "cToken redeem failed!");
         uint256 _after = IERC20(want).balanceOf(address(this));
         uint256 _withdrew = _after.sub(_before);
         return _withdrew;
     }
 
     // ******** BALANCE METHODS ********************
-    function balanceCInToken() public view returns (uint256) {
+    function balanceCInToken() internal view returns (uint256) {
         // Mantisa 1e18 to decimals
         uint256 b = balanceC();
         if (b > 0) {
@@ -140,15 +173,7 @@ contract StrategyCreamCRV is BaseStrategy {
         return b;
     }
 
-    function balanceC() public view returns (uint256) {
+    function balanceC() internal view returns (uint256) {
         return IERC20(crCRV).balanceOf(address(this));
-    }
-
-    function balanceOf() public view returns (uint256) {
-        return balanceOfWant().add(balanceCInToken());
-    }
-
-    function balanceOfWant() public view returns (uint256) {
-        return IERC20(want).balanceOf(address(this));
     }
 }
