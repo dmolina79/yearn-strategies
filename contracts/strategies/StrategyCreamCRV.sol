@@ -31,6 +31,8 @@ contract StrategyCreamCRV is BaseStrategy {
     using Address for address;
     using SafeMath for uint256;
 
+    string public constant name = "StrategyCreamCRV";
+
     // want is CRV
     address public constant CRV = address(0xD533a949740bb3306d119CC777fa900bA034cd52);
 
