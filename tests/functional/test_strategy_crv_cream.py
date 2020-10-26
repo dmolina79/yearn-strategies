@@ -7,11 +7,15 @@ from brownie import StrategyCreamCRV
 
 MAX_LIMIT = 2 ** 256 - 1
 
-APPROX_BLOCKS_PER_DAY = 6525
+blocks_per_year = 6525 * 365
+seconds_per_block = (86400 * 365) / blocks_per_year
+sample = 200
 
-APPROX_BLOCKS_PER_MONTH = 6525 * 30
 
-APPROX_BLOCKS_PER_YEAR = 6525 * 30 * 12
+def sleep(chain):
+    chain.mine(sample)
+    chain.sleep(int(sample * seconds_per_block))
+
 
 # CRV
 TOKEN_CONTRACT = "0xD533a949740bb3306d119CC777fa900bA034cd52"
@@ -124,33 +128,30 @@ def test_strategy_harvest(
 
     # deposit into vault
     vault.deposit(userBalance // 2, {"from": user})
+    sleep(chain)
+    assert vault.creditAvailable(strategy) > 0
 
     print("crv in vault:", token.balanceOf(vault).to("ether"))
-    amount = Wei("1000 ether")
-    user_before = token.balanceOf(whale)
-    token.approve(vault, amount, {"from": whale})
-    print("deposit amount:", amount.to("ether"))
-    vault.deposit(amount, {"from": whale})
+    whaleDeposit = token.balanceOf(whale) // 2
+    token.approve(vault, whaleDeposit, {"from": whale})
+    print("whale deposit amount:", Wei(whaleDeposit).to("ether"))
+    vault.deposit(whaleDeposit, {"from": whale})
 
     print("deposit funds into new strategy")
     print("\nharvest")
-    before = strategy.estimatedTotalAssets()
-    pricePerShareBefore = vault.pricePerShare()
-    print("vault.pricePerShare() before: ", vault.pricePerShare())
-    blocks_per_year = 2_300_000
-    sample = 100
-    chain.mine(sample)
-    print("credit available for strat", vault.creditAvailable(strategy).to("ether"))
-    assert vault.creditAvailable(strategy) > 0
-    # # Gas cost doesn't matter for this strat
+    # pricePerShareBefore = vault.pricePerShare()
+    # print("vault.pricePerShare() before: ", vault.pricePerShare())
 
+    # # Gas cost doesn't matter for this strat
     assert strategy.harvestTrigger(0) == True
     strategy.harvest()
-    print("balance of strategy:", strategy.estimatedTotalAssets().to("ether"))
+    before = strategy.estimatedTotalAssets()
+    print("estimatedTotalAssets before: ", before)
+    sleep(chain)
     after = strategy.estimatedTotalAssets()
+    print("estimatedTotalAssets after: ", after)
     assert after >= before
-    print("vault.pricePerShare() after: ", vault.pricePerShare())
-    assert vault.pricePerShare() > pricePerShareBefore
+    # print("vault.pricePerShare() after: ", vault.pricePerShare())
 
 
 def test_strategy_withdraw(
@@ -189,7 +190,7 @@ def test_strategy_withdraw(
         "balance of strategy after harvest:",
         initialDeposits,
     )
-    chain.sleep(APPROX_BLOCKS_PER_YEAR)
+    sleep(chain)
     depositsAfterSavings = strategy.estimatedTotalAssets().to("ether")
     print(
         "balance of strategy after sleep blocks:",

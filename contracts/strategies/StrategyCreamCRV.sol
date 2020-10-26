@@ -63,6 +63,11 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     // ******** OVERRIDE METHODS FROM BASE CONTRACT ********************
+
+    /*
+     * Provide an accurate expected value for the return this strategy
+     * would provide to the Vault if `report()` was called right now
+     */
     function expectedReturn() public override view returns (uint256) {
         //expected return = expected total assets (Total supplied CREAM + some want) - core postion (totalDebt)
         StrategyParams memory params = vault.strategies(address(this));
@@ -70,8 +75,16 @@ contract StrategyCreamCRV is BaseStrategy {
         return estimatedTotalAssets() - params.totalDebt;
     }
 
-    // NOTE: deposit any outstanding want token into CREAM
+    /*
+     * Perform any adjustments to the core position(s) of this strategy given
+     * what change the Vault made in the "investable capital" available to the
+     * strategy. Note that all "free capital" in the strategy after the report
+     * was made is available for reinvestment. Also note that this number could
+     * be 0, and you should handle that scenario accordingly.
+     */
+
     function adjustPosition() internal override {
+        // NOTE: deposit any outstanding want token into CREAM
         uint256 _want = IERC20(want).balanceOf(address(this));
         if (_want > 0) {
             IERC20(want).safeApprove(crCRV, 0);
@@ -80,6 +93,16 @@ contract StrategyCreamCRV is BaseStrategy {
         }
     }
 
+    /*
+     * Provide a signal to the keeper that `harvest()` should be called. The keeper will provide
+     * the estimated gas cost that they would pay to call `harvest()`, and this function should
+     * use that estimate to make a determination if calling it is "worth it" for the keeper.
+     * This is not the only consideration into issuing this trigger, for example if the position
+     * would be negatively affected if `harvest()` is not called shortly, then this can return `true`
+     * even if the keeper might be "at a loss" (keepers are always reimbursed by yEarn)
+     *
+     * NOTE: this call and `tendTrigger` should never return `true` at the same time.
+     */
     function harvestTrigger(uint256 gasCost) public override view returns (bool) {
         // NOTE: if the vault has creditAvailable we can pull funds in harvest
         uint256 _credit = vault.creditAvailable();
@@ -98,14 +121,49 @@ contract StrategyCreamCRV is BaseStrategy {
         return false;
     }
 
+    /*
+     * Provide an accurate estimate for the total amount of assets (principle + return)
+     * that this strategy is currently managing, denominated in terms of `want` tokens.
+     * This total should be "realizable" e.g. the total value that could *actually* be
+     * obtained from this strategy if it were to divest it's entire position based on
+     * current on-chain conditions.
+     *
+     * NOTE: care must be taken in using this function, since it relies on external
+     *       systems, which could be manipulated by the attacker to give an inflated
+     *       (or reduced) value produced by this function, based on current on-chain
+     *       conditions (e.g. this function is possible to influence through flashloan
+     *       attacks, oracle manipulations, or other DeFi attack mechanisms).
+     *
+     * NOTE: It is up to governance to use this function in order to correctly order
+     *       this strategy relative to its peers in order to minimize losses for the
+     *       Vault based on sudden withdrawals. This value should be higher than the
+     *       total debt of the strategy and higher than it's expected value to be "safe".
+     */
     function estimatedTotalAssets() public override view returns (uint256) {
         return IERC20(want).balanceOf(address(this)).add(_balanceCInToken());
     }
 
+    /*
+     * Make as much capital as possible "free" for the Vault to take. Some slippage
+     * is allowed, since when this method is called the strategist is no longer receiving
+     * their performance fee. The goal is for the strategy to divest as quickly as possible
+     * while not suffering exorbitant losses. This function is used during emergency exit
+     * instead of `prepareReturn()`
+     */
     function exitPosition() internal override {
         _withdrawAll();
     }
 
+    /*
+     * Perform any strategy unwinding or other calls necessary to capture
+     * the "free return" this strategy has generated since the last time it's
+     * core position(s) were adusted. Examples include unwrapping extra rewards.
+     * This call is only used during "normal operation" of a Strategy, and should
+     * be optimized to minimize losses as much as possible. It is okay to report
+     * "no returns", however this will affect the credit limit extended to the
+     * strategy and reduce it's overall position if lower than expected returns
+     * are sustained for long periods of time.
+     */
     function prepareReturn() internal override {
         // Note: in case of CREAM liquidity mining
         Creamtroller(creamtroller).claimComp(address(this));
@@ -131,6 +189,17 @@ contract StrategyCreamCRV is BaseStrategy {
         }
     }
 
+    /*
+     * Provide a signal to the keeper that `tend()` should be called. The keeper will provide
+     * the estimated gas cost that they would pay to call `tend()`, and this function should
+     * use that estimate to make a determination if calling it is "worth it" for the keeper.
+     * This is not the only consideration into issuing this trigger, for example if the position
+     * would be negatively affected if `tend()` is not called shortly, then this can return `true`
+     * even if the keeper might be "at a loss" (keepers are always reimbursed by yEarn)
+     *
+     * NOTE: this call and `harvestTrigger` should never return `true` at the same time.
+     * NOTE: if `tend()` is never intended to be called, it should always return `false`
+     */
     function tendTrigger(uint256 gasCost) public override view returns (bool) {
         // NOTE: this strategy does not need tending
 
@@ -139,10 +208,18 @@ contract StrategyCreamCRV is BaseStrategy {
         return false;
     }
 
+    /*
+     * Liquidate as many assets as possible to `want`, irregardless of slippage,
+     * up to `_amount`. Any excess should be re-invested here as well.
+     */
     function liquidatePosition(uint256 _amount) internal override {
         _withdrawSome(_amount);
     }
 
+    /*
+     * Do anything necesseary to prepare this strategy for migration, such
+     * as transfering any reserve or LP tokens, CDPs, or other tokens or stores of value.
+     */
     function prepareMigration(address _newStrategy) internal override {
         exitPosition();
         want.transfer(_newStrategy, want.balanceOf(address(this)));
