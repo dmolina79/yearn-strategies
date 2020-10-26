@@ -14,12 +14,23 @@ import "../../interfaces/uniswap/Uni.sol";
 
 import "../../interfaces/yearn/IController.sol";
 
-interface UniswapOracleProxy {
-    function quote(
-        address tokenIn,
-        address tokenOut,
-        uint256 amountIn
-    ) external view returns (uint256);
+interface Uniswap {
+    function getAmountsOut(uint256 amountIn, address[] memory path) external view returns (uint256[] memory amounts);
+}
+
+interface UniswapPair {
+    function token0() external view returns (address);
+
+    function token1() external view returns (address);
+
+    function getReserves()
+        external
+        view
+        returns (
+            uint112 reserve0,
+            uint112 reserve1,
+            uint32 blockTimestampLast
+        );
 }
 
 /*
@@ -43,8 +54,6 @@ contract StrategyCreamCRV is BaseStrategy {
 
     address public constant uni = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     address public constant weth = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // used for cream <> weth <> crv route
-
-    UniswapOracleProxy constant ORACLE = UniswapOracleProxy(0x0b5A6b318c39b60e7D8462F888e7fbA89f75D02F);
 
     uint256 public gasFactor = 10;
 
@@ -75,19 +84,15 @@ contract StrategyCreamCRV is BaseStrategy {
         // NOTE: if the vault has creditAvailable we can pull funds in harvest
         uint256 _credit = vault.creditAvailable();
         if (_credit > 0) {
-            uint256 creditInWei = ORACLE.quote(address(want), weth, _credit);
-            // ethvalue of credit available * factor is  greater than gas Cost
-            if (creditInWei.mul(gasFactor) > gasCost) {
+            uint256 _creditAvailable = quote(address(want), weth, _credit);
+            // ethvalue of credit available is  greater than gas Cost * gas factor
+            if (_creditAvailable > gasCost.mul(gasFactor)) {
                 return true;
             }
         }
         uint256 _debtOutstanding = vault.debtOutstanding();
         if (_debtOutstanding > 0) {
-            uint256 debtInWei = ORACLE.quote(address(want), weth, _debtOutstanding);
-            // ethvalue of debt * factor is  greater than gas Cost
-            if (debtInWei.mul(gasFactor) > gasCost) {
-                return true;
-            }
+            return true;
         }
 
         return false;
@@ -144,6 +149,24 @@ contract StrategyCreamCRV is BaseStrategy {
     }
 
     // ******* HELPER METHODS *********
+
+    function quote(
+        address token_in,
+        address token_out,
+        uint256 amount_in
+    ) internal view returns (uint256) {
+        bool is_weth = token_in == weth || token_out == weth;
+        address[] memory path = new address[](is_weth ? 2 : 3);
+        path[0] = token_in;
+        if (is_weth) {
+            path[1] = token_out;
+        } else {
+            path[1] = weth;
+            path[2] = token_out;
+        }
+        uint256[] memory amounts = Uniswap(uni).getAmountsOut(amount_in, path);
+        return amounts[amounts.length - 1];
+    }
 
     function setGasFactor(uint256 _gasFactor) external {
         require(msg.sender == strategist || msg.sender == governance(), "!governance");
