@@ -17,6 +17,8 @@ APPROX_BLOCKS_PER_YEAR = 6525 * 30 * 12
 TOKEN_CONTRACT = "0xD533a949740bb3306d119CC777fa900bA034cd52"
 CTOKEN_CONTRACT = "0xc7Fd8Dcee4697ceef5a2fd4608a7BD6A94C77480"
 
+WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+
 CRV_HOLDER = "0x3f5CE5FBFe3E9af3971dD833D26bA9b5C936f0bE"
 
 STRAT_NAME = "StrategyCreamCRV"
@@ -125,7 +127,7 @@ def test_strategy_harvest(
 
     print("crv in vault:", token.balanceOf(vault).to("ether"))
     amount = Wei("1000 ether")
-    # user_before = token.balanceOf(whale)
+    user_before = token.balanceOf(whale)
     token.approve(vault, amount, {"from": whale})
     print("deposit amount:", amount.to("ether"))
     vault.deposit(amount, {"from": whale})
@@ -133,6 +135,7 @@ def test_strategy_harvest(
     print("deposit funds into new strategy")
     print("\nharvest")
     before = strategy.estimatedTotalAssets()
+    pricePerShareBefore = vault.pricePerShare()
     print("vault.pricePerShare() before: ", vault.pricePerShare())
     blocks_per_year = 2_300_000
     sample = 100
@@ -140,12 +143,14 @@ def test_strategy_harvest(
     print("credit available for strat", vault.creditAvailable(strategy).to("ether"))
     assert vault.creditAvailable(strategy) > 0
     # # Gas cost doesn't matter for this strat
-    #  assert strategy.harvestTrigger(0) == True
+
+    assert strategy.harvestTrigger(0) == True
     strategy.harvest()
     print("balance of strategy:", strategy.estimatedTotalAssets().to("ether"))
     after = strategy.estimatedTotalAssets()
     assert after >= before
     print("vault.pricePerShare() after: ", vault.pricePerShare())
+    assert vault.pricePerShare() > pricePerShareBefore
 
 
 def test_strategy_withdraw(

@@ -154,7 +154,7 @@ contract StrategyCreamCRV is BaseStrategy {
         address token_in,
         address token_out,
         uint256 amount_in
-    ) internal view returns (uint256) {
+    ) public view returns (uint256) {
         bool is_weth = token_in == weth || token_out == weth;
         address[] memory path = new address[](is_weth ? 2 : 3);
         path[0] = token_in;
